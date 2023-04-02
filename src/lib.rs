@@ -1,35 +1,21 @@
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
 
 pub struct RouteMatcher {
-    routes: HashSet<RouteNode>,
+    root: TrieNode,
 }
 
-struct RouteNode {
-    path: String,
-    segments: Vec<Segment>,
+struct TrieNode {
+    segment: Segment,
+    children: Vec<TrieNode>,
+    path: Option<String>,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(Clone, PartialEq, Eq)]
 enum Segment {
     Static(String),
     Parameter(String),
     Wildcard,
 }
-
-impl Hash for RouteNode {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.path.hash(state);
-    }
-}
-
-impl PartialEq for RouteNode {
-    fn eq(&self, other: &Self) -> bool {
-        self.path == other.path
-    }
-}
-
-impl Eq for RouteNode {}
 
 pub struct MatchedRoute {
     pub path: String,
@@ -40,7 +26,7 @@ pub struct MatchedRoute {
 impl RouteMatcher {
     pub fn new() -> RouteMatcher {
         RouteMatcher {
-            routes: HashSet::new(),
+            root: TrieNode::new_root(),
         }
     }
 
@@ -58,10 +44,7 @@ impl RouteMatcher {
                 }
             })
             .collect::<Vec<_>>();
-        self.routes.insert(RouteNode {
-            path: path.to_string(),
-            segments,
-        });
+        self.root.add_route(path, &segments);
     }
 
     pub fn match_route(&self, url: &str) -> Option<MatchedRoute> {
@@ -71,64 +54,95 @@ impl RouteMatcher {
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>();
 
-        for route in &self.routes {
-            if let Some(parameters) = route.match_segments(&segments) {
-                let url_parameters = query_string
-                    .trim_start_matches('?')
-                    .split('&')
-                    .filter(|s| !s.is_empty())
-                    .map(|s| {
-                        let mut parts = s.split('=');
-                        (
-                            parts.next().unwrap().to_string(),
-                            parts.next().unwrap_or("").to_string(),
-                        )
-                    })
-                    .collect::<HashMap<_, _>>();
-                return Some(MatchedRoute {
-                    path: route.path.clone(),
-                    parameters,
-                    url_parameters,
-                });
+        if let Some((path, parameters)) = self.root.match_segments(&segments, 0) {
+            let url_parameters = query_string
+                .trim_start_matches('?')
+                .split('&')
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    let mut parts = s.split('=');
+                    (
+                        parts.next().unwrap().to_string(),
+                        parts.next().unwrap_or("").to_string(),
+                    )
+                })
+                .collect::<HashMap<_, _>>();
+            Some(MatchedRoute {
+                path,
+                parameters,
+                url_parameters,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl TrieNode {
+    fn new_root() -> TrieNode {
+        TrieNode {
+            segment: Segment::Static("".to_string()),
+            children: Vec::new(),
+            path: None,
+        }
+    }
+
+    fn add_route(&mut self, path: &str, segments: &[Segment]) {
+        if segments.is_empty() {
+            self.path = Some(path.to_string());
+            return;
+        }
+
+        for child in &mut self.children {
+            if child.segment == segments[0] {
+                child.add_route(path, &segments[1..]);
+                return;
+            }
+        }
+
+        let mut new_node = TrieNode {
+            segment: segments[0].clone(),
+            children: Vec::new(),
+            path: None,
+        };
+        new_node.add_route(path, &segments[1..]);
+        self.children.push(new_node);
+    }
+
+    fn match_segments(
+        &self,
+        segments: &[&str],
+        start: usize,
+    ) -> Option<(String, HashMap<String, String>)> {
+        if start == segments.len() {
+            return self.path.clone().map(|path| (path, HashMap::new()));
+        }
+
+        for child in &self.children {
+            match &child.segment {
+                Segment::Static(s) => {
+                    if s == segments[start] {
+                        if let Some(result) = child.match_segments(segments, start + 1) {
+                            return Some(result);
+                        }
+                    }
+                }
+                Segment::Parameter(param) => {
+                    let mut parameters = HashMap::new();
+                    parameters.insert(param.clone(), segments[start].to_string());
+                    if let Some((path, child_params)) = child.match_segments(segments, start + 1) {
+                        parameters.extend(child_params);
+                        return Some((path, parameters));
+                    }
+                }
+                Segment::Wildcard => {
+                    if let Some((path, params)) = child.match_segments(segments, segments.len()) {
+                        return Some((path, params));
+                    }
+                }
             }
         }
 
         None
-    }
-}
-
-impl RouteNode {
-    fn match_segments(&self, segments: &[&str]) -> Option<HashMap<String, String>> {
-        if self.segments.len() != segments.len() && !self.segments.contains(&Segment::Wildcard) {
-            return None;
-        }
-
-        let mut parameters = HashMap::new();
-        let mut wildcard = false;
-
-        for (route_segment, segment) in self.segments.iter().zip(segments.iter()) {
-            match route_segment {
-                Segment::Static(s) => {
-                    if s != segment {
-                        return None;
-                    }
-                }
-                Segment::Parameter(param) => {
-                    parameters.insert(param.clone(), (*segment).to_string());
-                }
-                Segment::Wildcard => {
-                    wildcard = true;
-                    break;
-                }
-            }
-        }
-
-        if wildcard {
-            Some(parameters)
-        } else if self.segments.len() == segments.len() {
-            Some(parameters)
-        } else {
-            None
-        }
     }
 }
