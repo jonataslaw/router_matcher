@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 
 pub struct RouteMatcher {
-    routes: Vec<RouteNode>,
+    routes: HashSet<RouteNode>,
 }
 
 struct RouteNode {
@@ -9,12 +10,26 @@ struct RouteNode {
     segments: Vec<Segment>,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 enum Segment {
     Static(String),
     Parameter(String),
     Wildcard,
 }
+
+impl Hash for RouteNode {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.path.hash(state);
+    }
+}
+
+impl PartialEq for RouteNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path
+    }
+}
+
+impl Eq for RouteNode {}
 
 pub struct MatchedRoute {
     pub path: String,
@@ -24,7 +39,9 @@ pub struct MatchedRoute {
 
 impl RouteMatcher {
     pub fn new() -> RouteMatcher {
-        RouteMatcher { routes: vec![] }
+        RouteMatcher {
+            routes: HashSet::new(),
+        }
     }
 
     pub fn add_route(&mut self, path: &str) {
@@ -41,7 +58,7 @@ impl RouteMatcher {
                 }
             })
             .collect::<Vec<_>>();
-        self.routes.push(RouteNode {
+        self.routes.insert(RouteNode {
             path: path.to_string(),
             segments,
         });
