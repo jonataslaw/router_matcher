@@ -3,7 +3,7 @@ name = "router_matcher"
 version = "0.1.0"
 edition = "2021"
 description = "A lightweight route parser written in just"
-repository = "https://github.com/jonataslaw/router_parser/"
+repository = "https://github.com/jonataslaw/router_matcher"
 license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
