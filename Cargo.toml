@@ -2,7 +2,7 @@
 name = "router_matcher"
 version = "0.1.0"
 edition = "2021"
-description = "A lightweight route parser written in just"
+description = "A lightweight route parser written in rust"
 repository = "https://github.com/jonataslaw/router_matcher"
 license = "MIT"
 
